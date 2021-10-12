@@ -1,4 +1,6 @@
-FROM microsoft/aspnetcore-build as build-image
+FROM mcr.microsoft.com/dotnet/sdk:3.1
+
+ as build-image
 
 WORKDIR /home/app
 
@@ -14,7 +16,8 @@ RUN dotnet test --verbosity=normal --results-directory /TestResults/ --logger "t
 
 RUN dotnet publish ./AccountOwnerServer/AccountOwnerServer.csproj -o /publish/
 
-FROM microsoft/aspnetcore
+FROM mcr.microsoft.com/dotnet/aspnet:3.1
+
 
 WORKDIR /publish
 
