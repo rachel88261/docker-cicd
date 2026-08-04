@@ -1,27 +1,104 @@
-name: Build Semantika APK
+name: Build and Test Semantika APK
 on:
   workflow_dispatch:
   push:
     branches: [ semantika-apk-build ]
   pull_request:
     branches: [ master ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: android-actions/setup-android@v3
-      - run: yes | sdkmanager --licenses >/dev/null || true
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - run: gradle assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v4
+
+      - name: Create signing keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore semantika-release.jks \
+            -storepass 'Semantika2026!' \
+            -keypass 'Semantika2026!' \
+            -alias semantika \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Semantika, OU=Android, O=Semantika, L=Jerusalem, C=IL'
+
+      - name: Build signed release APK
+        run: gradle assembleRelease --stacktrace
+
+      - name: Verify APK signatures
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Dump APK package info
+        run: |
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk | head -20
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: Semantika-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Semantika-APK-v2
+          path: app/build/outputs/apk/release/app-release.apk
+
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Create signing keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore semantika-release.jks \
+            -storepass 'Semantika2026!' \
+            -keypass 'Semantika2026!' \
+            -alias semantika \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Semantika, OU=Android, O=Semantika, L=Jerusalem, C=IL'
+
+      - name: Build release APK for emulator
+        run: gradle assembleRelease
+
+      - name: Install and launch on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb shell am start -n com.rachel88261.semantika/com.semantika.app.MainActivity
+            sleep 5
+            adb shell pidof com.rachel88261.semantika
